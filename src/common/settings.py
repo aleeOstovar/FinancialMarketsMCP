@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     # Secrets
     COINMARKETCAP_API_KEY: str
     COINMARKETCAP_BASE_URL: str = "https://pro-api.coinmarketcap.com"
+    MASSIVE_BASE_URL: str = "https://api.massive.com"
+    MASSIVE_API_KEY: str
 
     # Pydantic V2 Configuration
     model_config = SettingsConfigDict(

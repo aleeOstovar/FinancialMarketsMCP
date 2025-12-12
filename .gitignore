@@ -80,6 +80,7 @@ yarn-error.log*
 
 # Cursor
 .cursor/
+.mcp-server/
 
 # JetBrains / PyCharm
 .idea/
@@ -96,5 +97,5 @@ docker-compose.override.yml
 
 # --- MCP Specific ---
 # If your tools generate local files, ignore them here
-# data/
-# temp/
+data/
+temp/

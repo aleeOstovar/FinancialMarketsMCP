@@ -26,37 +26,37 @@ dev = [
     "pytest>=8.0.0",
     "pytest-mock>=3.12.0",
     "httpx>=0.27.0",
-    "black>=24.0.0",   # Code formatter
-    "isort>=5.13.0",   # Import sorter
-    "mypy>=1.8.0"      # Type checker
+    "black>=24.0.0",
+    "isort>=5.13.0",
+    "mypy>=1.8.0"
 ]
 
-# --- 🛠️ PACKAGE DISCOVERY (Crucial for src/ layout) ---
+# --- 🚀 ENTRY POINTS (Headless Support) ---
+# This allows you to run the server from anywhere using these commands
+[project.scripts]
+mcp-server = "src.app.main:start"  # We will add a start function to main.py
+mcp-cli = "src.app.cli:main"       # Run headless: 'mcp-cli'
+
+# --- 🛠️ PACKAGE DISCOVERY (FIXED) ---
 [tool.setuptools.packages.find]
-where = ["src"]  # Tells Python your code is inside the 'src' folder
-include = ["*"]  # Include all packages found there
+where = ["."]       # Look in the root directory
+include = ["src*"]  # Include the 'src' folder as a package
+# Result: 'import src.common' works correctly
 
 # --- 🧪 PYTEST CONFIGURATION ---
-# This allows you to just run 'pytest' without extra arguments
 [tool.pytest.ini_options]
 minversion = "6.0"
 addopts = "-ra -q"
-testpaths = [
-    "tests",
-]
+testpaths = ["tests"]
 python_files = "*_test.py test_*.py"
-# This fixes the "ModuleNotFoundError: No module named src" during tests
-pythonpath = [
-    "."
-]
+pythonpath = ["."]
 
-# --- 🎨 FORMATTER CONFIGURATION (Black) ---
+# --- 🎨 FORMATTER CONFIGURATION ---
 [tool.black]
 line-length = 88
 target-version = ['py310']
 include = '\.pyi?$'
 
-# --- 🧹 IMPORT SORTER (Isort) ---
 [tool.isort]
 profile = "black"
 src_paths = ["src", "tests"]

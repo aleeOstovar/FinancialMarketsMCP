@@ -3,9 +3,9 @@ version: "3.8"
 services:
   mcp-server:
     build:
-      context: ../../ 
+      context: ../../
       dockerfile: deployments/docker/Dockerfile
-    image: mcp-coinmarketcap:latest
+    image: mcp-financial-market:latest
     container_name: mcp_server
     ports:
       - "8000:8000"
