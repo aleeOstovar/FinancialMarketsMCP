@@ -1,74 +1,57 @@
-# 📈 Financial Market MCP Server
+# 📈 Financial Market MCP Server (Crypto & Forex)
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org)
 [![FastAPI 0.110+](https://img.shields.io/badge/FastAPI-0.110+-009688.svg?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker)
 ![MCP](https://img.shields.io/badge/MCP-Protocol-orange?style=for-the-badge)
 
-> **Bridge the gap between LLMs and Real-Time Financial Data.**
+> **Bridge the gap between LLMs and Real-Time Financial Markets.**
 
-This is a production-grade **Model Context Protocol (MCP)** server that empowers AI agents (like **Claude Desktop** and **Cursor**) to access real-time cryptocurrency data, historical metrics, news, and technical indicators via the CoinMarketCap API.
+This is a production-grade **Model Context Protocol (MCP)** server that empowers AI agents (Claude, Cursor, n8n) to access real-time **Cryptocurrency** (via CoinMarketCap) and **Forex** (via Massive/Polygon) data.
 
-Built with a **Domain-Driven Design (DDD)** architecture, it wraps a high-performance MCP Core inside a robust FastAPI shell, offering **Server-Sent Events (SSE)** transport, Authentication, and comprehensive error handling.
+Built with a **Domain-Driven Design (DDD)** architecture, it supports two running modes:
+
+1.  **HTTP/SSE Server**: For production, Docker, and n8n.
+2.  **Headless (Stdio)**: For local CLI usage and Claude Desktop.
 
 ---
 
 ## 🚀 Features
 
-### 💎 Core Market Data
+### 💎 Crypto Domain (CoinMarketCap)
 
-- **`get_crypto_prices`**: Real-time prices for any token (e.g., BTC, ETH).
-- **`get_top_cryptos`**: Fetch top N cryptocurrencies by market cap.
-- **`get_market_pairs`**: Active market pairs and exchange data.
-- **`get_ohlcv_latest`**: Latest Open-High-Low-Close-Volume data.
+- **Real-Time Data**: `get_crypto_prices`, `get_top_cryptos`, `get_market_pairs`.
+- **Analytics**: `get_trending_cryptos`, `get_fear_and_greed_index`, `get_global_crypto_metrics`.
+- **Fundamental**: `get_crypto_metadata` (Logos/Whitepapers), `get_blockchain_statistics`.
+- **Historical**: `get_historical_prices`, `get_latest_ohlcv`.
 
-### 📊 Analytics & Trends
+### 💱 Forex Domain (Massive/Polygon)
 
-- **`get_trending_cryptos`**: Identify coins with highest search volume surges (24h, 7d).
-- **`get_global_crypto_metrics`**: Total market cap, BTC dominance, and active pairs.
-- **`get_fear_and_greed_index`**: Analyze market sentiment.
-- **`get_top_exchanges`**: Rank exchanges by liquidity and volume.
-
-### 📜 Historical & Fundamental
-
-- **`get_historical_prices`**: Time-travel price queries.
-- **`get_crypto_metadata`**: Logos, whitepapers, descriptions, and official links.
-- **`get_blockchain_statistics`**: Hashrates, difficulty, and transaction fees (e.g., for Bitcoin).
-- **`get_latest_crypto_news`**: Aggregated news articles and headlines.
-
-### 🧠 Advanced
-
-- **`get_price_performance`**: ROI stats (ATH, ATL, 24h/7d/30d changes).
-- **`get_cmc20_index`**: Performance of the top 20 assets.
-- **`get_crypto_categories`**: Sector performance (e.g., DeFi, AI coins).
+- **Market Data**: `get_forex_tickers`, `get_forex_exchanges`.
+- **Pricing**:
+  - `get_forex_last_quote` (Real-time Bid/Ask - _Premium Plan_).
+  - `get_forex_prev_close` (Daily OHLC - _Free Plan Compatible_).
+  - `get_forex_conversion` (Real-time currency conversion).
+- **Analysis**: `get_forex_movers` (Gainers/Losers).
+- **Technical Indicators**: SMA, EMA, RSI, MACD, Bollinger Bands (`get_forex_indicator`).
+- **History**: `get_forex_history` (Custom OHLC bars).
 
 ---
 
 ## 🏗️ Architecture
 
-This project follows a **Standard**, separating concerns into distinct layers:
-
 ```mermaid
 graph TD
-    Client(Cursor / Claude) -->|SSE + Auth| FastAPI(src/app)
-    FastAPI -->|Mount| MCP_Core(src/mcp)
-    MCP_Core -->|Route| Router(router.py)
-    Router -->|Dispatch| Tools(src/tools/crypto)
-    Tools -->|Validate| Schemas(Pydantic Models)
-    Tools -->|Fetch| Service(src/services/http)
-    Service -->|Request| CMC_API(CoinMarketCap)
-```
-
-### Folder Structure
-
-```text
-src/
-├── app/                 # 🌐 HTTP Layer (FastAPI, Auth, Middleware)
-├── mcp/                 # 🔌 Protocol Layer (FastMCP, Routing)
-├── tools/               # 🛠️ Business Logic (Crypto, Forex domains)
-│   └── crypto/          #    - Specific tool implementations
-├── services/            # 📡 Infrastructure (HTTP Clients, DB)
-└── common/              # ⚙️ Shared Utils (Config, Logging)
+    Client(Claude / n8n / Cursor) -->|SSE or Stdio| Application
+    subgraph "Docker / Local"
+        Application -->|Route| FastAPI(src/app)
+        FastAPI -->|Mount| MCP_Core(src/mcp)
+        MCP_Core -->|Dispatch| Tools
+        Tools -->|Crypto| ServiceCrypto(CoinMarketCap)
+        Tools -->|Forex| ServiceForex(Massive/Polygon)
+    end
+    ServiceCrypto -->|HTTP| CMC_API
+    ServiceForex -->|HTTP| Massive_API
 ```
 
 ---
@@ -77,125 +60,153 @@ src/
 
 ### 1. Prerequisites
 
-- Python 3.10+
-- [CoinMarketCap API Key](https://pro.coinmarketcap.com/)
+- Python 3.10+ or Docker
+- **CoinMarketCap API Key** ([Get one here](https://pro.coinmarketcap.com/))
+- **Massive/Polygon API Key** ([Get one here](https://polygon.io/))
 
-### 2. Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/mcp-financial-market.git
-cd mcp-financial-market
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 3. Configuration
+### 2. Configuration
 
 Create a `.env` file in `deployments/env/.env`:
 
 ```ini
-# CoinMarketCap API (Required)
-COINMARKETCAP_API_KEY=your_cmc_key_here
+# --- API Keys ---
+COINMARKETCAP_API_KEY=your_cmc_key
+MASSIVE_API_KEY=your_massive_key
+MASSIVE_BASE_URL=https://api.polygon.io
 
-# Server Security (Optional but Recommended)
-# Generate one: openssl rand -hex 32
-MCP_SERVER_API_KEY=your_secure_server_key
+# --- Server Security ---
+# Required for HTTP/SSE clients (n8n, Cursor)
+MCP_SERVER_API_KEY=my_super_secret_key
 
-# App Config
-LOG_LEVEL=INFO
+# --- App Config ---
 HOST=0.0.0.0
 PORT=8000
+DEBUG=True
 ```
 
-### 4. Run the Server
+### 3. Installation (Local)
 
 ```bash
-python -m src.app.main
+# Install dependencies and project in editable mode
+pip install -e .
 ```
-
-_Server will start at `http://localhost:8000`_
 
 ---
 
-## 🔌 Connecting to Clients
+## 🖥️ Running the Server
 
-### Option A: Cursor AI (Recommended)
+### Option A: Docker (Recommended)
 
-1. Go to **Settings** > **Features** > **MCP**.
-2. Click **+ Add New MCP Server**.
-   - **Name**: `CryptoMarket`
-   - **Type**: `SSE`
-   - **URL**: `http://localhost:8000/mcp/sse`
-3. **Important**: If you set `MCP_SERVER_API_KEY`, ensure you add it to the headers config or disable auth locally for testing.
+This runs the full HTTP server with SSE support.
 
-### Option B: Claude Desktop
+```bash
+# Build and Run
+docker-compose -f deployments/docker/docker-compose.yml up --build -d
 
-Edit your config file (`%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+# Check Health
+docker ps
+```
+
+_Endpoint:_ `http://localhost:8000/mcp/sse`
+
+### Option B: Local CLI (Headless)
+
+Run directly in your terminal (useful for debugging or piping to other apps).
+
+```bash
+# Run using the configured entry point
+mcp-cli
+```
+
+### Option C: Local HTTP Server
+
+```bash
+# Run using the configured entry point
+mcp-server
+```
+
+---
+
+## 🔌 Connecting Clients
+
+### 1. n8n (Workflow Automation)
+
+- **Prerequisite**: Run via Docker (Option A).
+- **Node Type**: "SSE Trigger" or "MCP" (if available).
+- **URL**: `http://mcp-server:8000/mcp/sse` (Internal Docker Network) or `http://host.docker.internal:8000/mcp/sse` (Local).
+- **Header**: `X-API-Key: <your_mcp_server_key>`
+
+### 2. Claude Desktop
+
+Edit `%APPDATA%\Claude\claude_desktop_config.json`:
+
+**Docker Method (Recommended):**
 
 ```json
 {
   "mcpServers": {
-    "CryptoMarket": {
-      "url": "http://localhost:8000/mcp/sse",
-      "headers": {
-        "X-API-Key": "your_secure_server_key"
+    "FinancialMarket": {
+      "command": "docker",
+      "args": ["exec", "-i", "mcp_server", "python", "-m", "src.app.cli"]
+    }
+  }
+}
+```
+
+**Local Python Method:**
+
+```json
+{
+  "mcpServers": {
+    "FinancialMarket": {
+      "command": "python",
+      "args": ["-m", "src.app.cli"],
+      "env": {
+        "COINMARKETCAP_API_KEY": "...",
+        "MASSIVE_API_KEY": "..."
       }
     }
   }
 }
 ```
 
----
+### 3. Cursor AI
 
-## 🐳 Docker Deployment
-
-The project includes a production-ready multi-stage Dockerfile.
-
-```bash
-# Build
-docker-compose -f deployments/docker/docker-compose.yml build
-
-# Run
-docker-compose -f deployments/docker/docker-compose.yml up -d
-```
+1.  **Settings** > **MCP**.
+2.  **Add New Server**:
+    - Type: `SSE`
+    - URL: `http://localhost:8000/mcp/sse`
 
 ---
 
 ## 🧪 Testing
 
-We use `pytest` for unit and integration testing.
-
 ```bash
-# Run all tests
+# Run Unit Tests
 pytest
 
-# Run with verbose output
-pytest -v
+# Run Specific Forex Tests
+pytest tests/unit/forex/ -v
 ```
 
 ---
 
-## 📚 API Reference
+## 🛠️ Project Structure
 
-Once running, visit the auto-generated Swagger documentation:
-
-- **Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **Health Check**: [http://localhost:8000/api/v1/health](http://localhost:8000/api/v1/health)
-- **MCP SSE Endpoint**: `http://localhost:8000/mcp/sse`
-
----
-
-## 🤝 Contributing
-
-1. Fork the repo.
-2. Create a feature branch (`git checkout -b feature/forex-tools`).
-3. Add your new tool in `src/tools/`.
-4. Register it in `src/mcp/router.py`.
-5. Add tests in `tests/`.
-6. Submit a Pull Request.
-
----
+```text
+mcp-financial-market/
+├── deployments/         # Docker & K8s configs
+│   ├── docker/
+│   └── env/
+├── src/
+│   ├── app/             # FastAPI App & CLI Entry points
+│   ├── mcp/             # FastMCP Protocol & Routing
+│   ├── tools/           # Domain Logic
+│   │   ├── crypto/      # CMC Implementation
+│   │   └── forex/       # Massive/Polygon Implementation
+│   └── common/          # Shared Utils
+├── tests/               # Pytest Suite
+└── pyproject.toml       # Dependencies & Build System
+```
 
 **License**: MIT
