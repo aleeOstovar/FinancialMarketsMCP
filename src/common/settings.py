@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     # App Config
     APP_NAME: str = "CoinMarketCap MCP"
     LOG_LEVEL: str = "INFO"
+    LOG_DIR: str = "logs"
+    LOG_FILENAME: str = "mcp_server.jsonl"
     
     # Secrets
     COINMARKETCAP_API_KEY: str

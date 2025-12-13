@@ -7,11 +7,12 @@ from src.tools.forex.schemas import (
 )
 from src.common.exceptions import handle_api_error
 from src.common.settings import get_settings
+from src.common.decorators import monitor_tool
 
-# Instantiate service singleton
 forex_service = MassiveForexService()
 settings = get_settings()
 
+@monitor_tool
 def get_forex_tickers(
     limit: Annotated[int, Field(100, description="Number of tickers (1-1000)")] = 100
 ) -> str:
@@ -32,6 +33,7 @@ def get_forex_tickers(
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
 
+@monitor_tool
 def get_forex_conversion(
     from_currency: Annotated[str, Field(description="Source Currency (e.g. USD)")],
     to_currency: Annotated[str, Field(description="Target Currency (e.g. EUR)")],
@@ -56,6 +58,7 @@ def get_forex_conversion(
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
 
+@monitor_tool
 def get_forex_last_quote(
     ticker: Annotated[str, Field(description="Forex Pair (e.g. EURUSD)")]
 ) -> str:
@@ -78,6 +81,7 @@ def get_forex_last_quote(
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
 
+@monitor_tool
 def get_forex_market_status() -> str:
     """[Forex] Get current trading status for forex markets."""
     try:
@@ -92,6 +96,7 @@ def get_forex_market_status() -> str:
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
 
+@monitor_tool
 def get_forex_snapshot(
     ticker: Annotated[str, Field(description="Forex Pair (e.g. EURUSD)")]
 ) -> str:
@@ -115,6 +120,7 @@ def get_forex_snapshot(
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
 
+@monitor_tool
 def get_forex_movers(
     direction: Annotated[str, Field(description="Direction: 'gainers' or 'losers'")]
 ) -> str:
@@ -135,6 +141,7 @@ def get_forex_movers(
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
 
+@monitor_tool
 def get_forex_history(
     ticker: Annotated[str, Field(description="Forex Pair (e.g. EURUSD)")],
     multiplier: Annotated[int, Field(1, description="Time interval multiplier")] = 1,
@@ -168,6 +175,7 @@ def get_forex_history(
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
 
+@monitor_tool
 def get_forex_historical_quotes(
     ticker: Annotated[str, Field(description="Forex Pair (e.g. EURUSD)")],
     timestamp: Annotated[str | None, Field(None, description="Query by timestamp (YYYY-MM-DD or Unix MS)")] = None,
@@ -208,6 +216,7 @@ def get_forex_historical_quotes(
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
 
+@monitor_tool
 def get_forex_indicator(
     indicator: Annotated[str, Field(description="Type: sma, ema, macd, rsi, bollinger")],
     ticker: Annotated[str, Field(description="Forex Pair (e.g. EURUSD)")],
@@ -253,6 +262,7 @@ def get_forex_indicator(
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
     
+@monitor_tool
 def get_forex_exchanges(
     asset_class: Annotated[str, Field("fx", description="Asset class (default: fx)")] = "fx",
     locale: Annotated[str, Field("global", description="Locale (default: global)")] = "global"
@@ -286,6 +296,7 @@ def get_forex_exchanges(
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
     
+@monitor_tool
 def get_forex_market_snapshot(
     tickers: Annotated[str | None, Field(None, description="Comma-separated list of tickers to filter")] = None,
     limit: Annotated[int, Field(100, description="Number of results")] = 100
@@ -326,6 +337,7 @@ def get_forex_market_snapshot(
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
     
+@monitor_tool
 def get_forex_prev_close(
     ticker: Annotated[str, Field(description="Forex Pair (e.g. EURUSD)")]
 ) -> str:

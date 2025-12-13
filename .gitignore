@@ -99,3 +99,8 @@ docker-compose.override.yml
 # If your tools generate local files, ignore them here
 data/
 temp/
+
+# Logs
+logs/
+*.log
+*.jsonl
