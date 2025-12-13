@@ -18,7 +18,8 @@ dependencies = [
     "pydantic-settings>=2.2.0",
     "python-dotenv>=1.0.0",
     "requests>=2.31.0",
-    "python-multipart>=0.0.9"
+    "python-multipart>=0.0.9",
+    "massive==2.0.2"
 ]
 
 [project.optional-dependencies]
@@ -28,7 +29,8 @@ dev = [
     "httpx>=0.27.0",
     "black>=24.0.0",
     "isort>=5.13.0",
-    "mypy>=1.8.0"
+    "mypy>=1.8.0",
+    "massive==2.0.2"
 ]
 
 # --- 🚀 ENTRY POINTS (Headless Support) ---

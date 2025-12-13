@@ -1,9 +1,12 @@
-from typing import Annotated
+from datetime import datetime
+from typing import Annotated, Any, List
 from pydantic import Field, ValidationError
+
+# Internal Imports
 from src.tools.forex.service import MassiveForexService
 from src.tools.forex.schemas import (
     ForexTickerInput, TickersListInput, ConversionInput, HistoricalQuotesInput,
-    MarketMoversInput, CustomBarsInput, IndicatorInput,ExchangesInput,MarketSnapshotInput
+    MarketMoversInput, CustomBarsInput, IndicatorInput, ExchangesInput, MarketSnapshotInput
 )
 from src.common.exceptions import handle_api_error
 from src.common.settings import get_settings
@@ -12,29 +15,34 @@ from src.common.decorators import monitor_tool
 forex_service = MassiveForexService()
 settings = get_settings()
 
+
+def _get_val(obj, key, default=None):
+    """Safely get value from Dict or Object."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
 @monitor_tool
-def get_forex_tickers(
+async def get_forex_tickers(
     limit: Annotated[int, Field(100, description="Number of tickers (1-1000)")] = 100
 ) -> str:
     """[Forex] Retrieve a comprehensive list of supported forex currency pairs."""
     try:
         validated = TickersListInput(limit=limit)
-    except ValidationError as e:
-        return f"Input Validation Error: {str(e)}"
-
-    try:
-        response = forex_service.get_tickers({"limit": validated.limit})
-        results = response.get("results", [])
+        results = await forex_service.get_tickers({"limit": validated.limit})
         
         lines = [f"Forex Tickers (Top {limit}):", "-" * 50]
         for item in results:
-            lines.append(f"{item.get('ticker')} - {item.get('name')} ({item.get('locale', 'N/A')})")
+            ticker = getattr(item, 'ticker', 'N/A')
+            name = getattr(item, 'name', 'N/A')
+            locale = getattr(item, 'locale', 'N/A')
+            lines.append(f"{ticker} - {name} ({locale})")
         return "\n".join(lines)
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
 
 @monitor_tool
-def get_forex_conversion(
+async def get_forex_conversion(
     from_currency: Annotated[str, Field(description="Source Currency (e.g. USD)")],
     to_currency: Annotated[str, Field(description="Target Currency (e.g. EUR)")],
     amount: Annotated[float, Field(1.0, description="Amount to convert")] = 1.0
@@ -42,43 +50,42 @@ def get_forex_conversion(
     """[Forex] Real-time conversion between two currencies."""
     try:
         validated = ConversionInput(from_currency=from_currency, to_currency=to_currency, amount=amount)
-    except ValidationError as e:
-        return f"Input Validation Error: {str(e)}"
-
-    try:
-        res = forex_service.get_conversion(validated.from_currency, validated.to_currency, {"amount": validated.amount})
-        converted = res.get("converted", 0)
-        last_price = res.get("last", {}).get("ask", 0) if isinstance(res.get("last"), dict) else res.get("last", 0)
+        res = await forex_service.get_conversion(validated.from_currency, validated.to_currency, {"amount": validated.amount})
+        
+        converted = getattr(res, 'converted', 0)
+        last_obj = getattr(res, 'last', None)
+        rate = getattr(last_obj, 'ask', 0) if last_obj else 0
         
         lines = ["Currency Conversion:", "-" * 50]
         lines.append(f"{validated.amount} {validated.from_currency} -> {validated.to_currency}")
         lines.append(f"Result: {converted:,.4f} {validated.to_currency}")
-        lines.append(f"Rate: {last_price:,.4f}")
+        lines.append(f"Rate: {rate:,.4f}")
         return "\n".join(lines)
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
 
 @monitor_tool
-def get_forex_last_quote(
+async def get_forex_last_quote(
     ticker: Annotated[str, Field(description="Forex Pair (e.g. EURUSD)")]
 ) -> str:
     """[Forex] Get the most recent bid/ask quote for a currency pair."""
     try:
         validated = ForexTickerInput(ticker=ticker)
-    except ValidationError as e:
-        return f"Input Validation Error: {str(e)}"
-
-    try:
-        res = forex_service.get_last_quote(validated.ticker)
-        last_data = res.get("last", {})
+        response_obj = await forex_service.get_last_quote(validated.ticker)
+        last_data = getattr(response_obj, 'last', None)
 
         if not last_data:
             return (f"Note: Real-time Bid/Ask quotes for {validated.ticker} are unavailable or returned no data. "
-                    "Please use 'get_forex_prev_close' for the latest available price.")
+                    "Please use 'get_forex_prev_close' for daily data.")
 
-        bid = last_data.get("bid", "N/A")
-        ask = last_data.get("ask", "N/A")
-        timestamp = last_data.get("timestamp", "N/A")
+        # Access attributes on the nested 'last' object
+        bid = getattr(last_data, 'bid', None)
+        ask = getattr(last_data, 'ask', None)
+        timestamp = getattr(last_data, 'timestamp', 'N/A')
+
+        # Safety check for empty values 
+        if not bid and not ask:
+            return f"No active quote data found for {validated.ticker}."
 
         lines = [f"Last Quote for {validated.ticker}:", "-" * 50]
         lines.append(f"Bid: {bid}")
@@ -91,91 +98,145 @@ def get_forex_last_quote(
         return handle_api_error(e, settings.MASSIVE_API_KEY)
 
 @monitor_tool
-def get_forex_market_status() -> str:
+async def get_forex_market_status() -> str:
     """[Forex] Get current trading status for forex markets."""
     try:
-        res = forex_service.get_market_status()
+        res = await forex_service.get_market_status()
+        
+        market = getattr(res, 'market', 'N/A')
+        status = getattr(res, 'status', 'N/A') 
+        exchanges_open = getattr(getattr(res, 'exchanges', None), 'open', 'N/A')
         
         lines = ["Forex Market Status:", "-" * 50]
-        lines.append(f"Market: {res.get('market', 'N/A')}")
-        lines.append(f"Status: {res.get('status', 'N/A')}")
-        if "exchanges" in res:
-             lines.append(f"Exchanges Open: {res.get('exchanges', {}).get('open', 'N/A')}")
+        lines.append(f"Market: {market}")
+        lines.append(f"Status: {status}")
+        lines.append(f"Exchanges Open: {exchanges_open}")
         return "\n".join(lines)
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
 
 @monitor_tool
-def get_forex_snapshot(
+async def get_forex_snapshot(
     ticker: Annotated[str, Field(description="Forex Pair (e.g. EURUSD)")]
 ) -> str:
     """[Forex] Get a comprehensive market data snapshot for a single ticker."""
     try:
         validated = ForexTickerInput(ticker=ticker)
-    except ValidationError as e:
-        return f"Input Validation Error: {str(e)}"
-
-    try:
-        res = forex_service.get_snapshot_ticker(validated.ticker)
-        data = res.get("ticker", {})
-        day = data.get("day", {})
+        snap = await forex_service.get_snapshot_ticker(validated.ticker)
         
-        lines = [f"Snapshot for {validated.ticker}:", "-" * 50]
-        lines.append(f"Price: {data.get('lastTrade', {}).get('p', 'N/A')}")
-        lines.append(f"Today's Change: {data.get('todaysChangePerc', 0):.2f}%")
-        lines.append(f"Day Open: {day.get('o', 'N/A')} | High: {day.get('h', 'N/A')} | Low: {day.get('l', 'N/A')} | Close: {day.get('c', 'N/A')}")
-        lines.append(f"Volume: {day.get('v', 0):,.0f}")
+        ticker_name = getattr(snap, 'ticker', validated.ticker)
+
+        # JSON 'lastQuote' -> Object 'last_quote'
+        last_quote = getattr(snap, 'last_quote', None)
+        day = getattr(snap, 'day', None)
+        prev_day = getattr(snap, 'prev_day', None)
+        min_bar = getattr(snap, 'min', None)
+
+        price = "N/A"
+        if last_quote:
+            ask = getattr(last_quote, 'ask', 0) or getattr(last_quote, 'a', 0)
+            bid = getattr(last_quote, 'bid', 0) or getattr(last_quote, 'b', 0)
+            if ask and bid:
+                price = f"{(ask + bid) / 2:.5f} (Mid)"
+
+        if price == "N/A" and min_bar:
+            c = getattr(min_bar, 'close', 0) or getattr(min_bar, 'c', 0)
+            if c: price = f"{c} (Last Min)"
+
+        if price == "N/A" and day:
+            c = getattr(day, 'close', 0) or getattr(day, 'c', 0)
+            if c: price = f"{c} (Day Close)"
+
+        if price == "N/A" and prev_day:
+            c = getattr(prev_day, 'close', 0) or getattr(prev_day, 'c', 0)
+            if c: price = f"{c} (Prev Close)"
+
+        change = getattr(snap, 'todays_change_perc', 0)
+
+        if change is None: 
+            change = getattr(snap, 'todays_change_percent', 0)
+            
+
+        vol = getattr(day, 'v', 0) or getattr(day, 'volume', 0)
+        if not vol and prev_day:
+            vol = getattr(prev_day, 'v', 0) or getattr(prev_day, 'volume', 0)
+
+        lines = [f"Snapshot for {ticker_name}:", "-" * 50]
+        lines.append(f"Price: {price}")
+        lines.append(f"Change: {change:.2f}%")
+        lines.append(f"Volume: {vol:,.0f}")
         return "\n".join(lines)
+
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
 
+
 @monitor_tool
-def get_forex_movers(
+async def get_forex_movers(
     direction: Annotated[str, Field(description="Direction: 'gainers' or 'losers'")]
 ) -> str:
     """[Forex] Get top market movers (gainers/losers)."""
     try:
         validated = MarketMoversInput(direction=direction)
-    except ValidationError as e:
-        return f"Input Validation Error: {str(e)}"
-
-    try:
-        res = forex_service.get_market_movers(validated.direction)
-        tickers = res.get("tickers", [])
+        results = await forex_service.get_market_movers(validated.direction)
         
         lines = [f"Top Forex {validated.direction.capitalize()}:", "=" * 50]
-        for t in tickers[:10]:
-            lines.append(f"{t.get('ticker')} | Change: {t.get('todaysChangePerc'):.2f}% | Price: {t.get('day', {}).get('c')}")
+        
+        for t in results[:10]:
+            ticker = getattr(t, 'ticker', 'N/A')
+            
+            # Try Native API Change
+            change = getattr(t, 'todays_change_percent', getattr(t, 'todays_change_perc', 0))
+            
+            # 2. Extract Price Data
+            day = getattr(t, 'day', None)
+            price = getattr(day, 'c', getattr(day, 'close', 0)) if day else 0
+            
+            # Fallback Logic: If API says 0% change
+            # We calculate change based on Previous Day's Open vs Close
+            if change == 0:
+                prev_day = getattr(t, 'prev_day', None)
+                if prev_day:
+                    o = getattr(prev_day, 'o', getattr(prev_day, 'open', 0))
+                    c = getattr(prev_day, 'c', getattr(prev_day, 'close', 0))
+                    
+                    if o and c and o != 0:
+                        change = ((c - o) / o) * 100
+                        if price == 0:
+                            price = c
+
+            lines.append(f"{ticker} | Change: {change:.2f}% | Price: {price}")
+            
         return "\n".join(lines)
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
 
 @monitor_tool
-def get_forex_history(
+async def get_forex_history(
     ticker: Annotated[str, Field(description="Forex Pair (e.g. EURUSD)")],
-    multiplier: Annotated[int, Field(1, description="Time interval multiplier")] = 1,
+    multiplier: Annotated[int, Field(1, description="Time interval")] = 1,
     timespan: Annotated[str, Field("day", description="minute, hour, day")] = "day",
-    from_date: Annotated[str, Field(description="Start YYYY-MM-DD")] = "2024-01-01",
-    to_date: Annotated[str, Field(description="End YYYY-MM-DD")] = "2024-01-07"
+    from_date: Annotated[str, Field(description="YYYY-MM-DD")] = "2024-01-01",
+    to_date: Annotated[str, Field(description="YYYY-MM-DD")] = "2024-01-07"
 ) -> str:
     """[Forex] Get historical OHLC bars for a custom range."""
     try:
         validated = CustomBarsInput(ticker=ticker, multiplier=multiplier, timespan=timespan, from_date=from_date, to_date=to_date)
-    except ValidationError as e:
-        return f"Input Validation Error: {str(e)}"
-
-    try:
-        res = forex_service.get_custom_bars(
+        results = await forex_service.get_custom_bars(
             validated.ticker, validated.multiplier, validated.timespan, validated.from_date, validated.to_date, {}
         )
-        results = res.get("results", [])
         
         lines = [f"Historical Data for {validated.ticker} ({validated.multiplier} {validated.timespan}):", "-" * 50]
         if not results:
             return "No data found for this range."
             
-        for bar in results[:20]: # Limit for LLM context window
-            lines.append(f"TS: {bar.get('t')} | O: {bar.get('o')} | H: {bar.get('h')} | L: {bar.get('l')} | C: {bar.get('c')}")
+        for bar in results[:20]:
+            ts = getattr(bar, 'timestamp', 0)
+            o = getattr(bar, 'open', 0)
+            c = getattr(bar, 'close', 0)
+            h = getattr(bar, 'high', 0)
+            l = getattr(bar, 'low', 0)
+            lines.append(f"TS: {ts} | O: {o} | H: {h} | L: {l} | C: {c}")
         
         if len(results) > 20:
             lines.append(f"... (+{len(results)-20} more records)")
@@ -185,86 +246,76 @@ def get_forex_history(
         return handle_api_error(e, settings.MASSIVE_API_KEY)
 
 @monitor_tool
-def get_forex_historical_quotes(
+async def get_forex_historical_quotes(
     ticker: Annotated[str, Field(description="Forex Pair (e.g. EURUSD)")],
-    timestamp: Annotated[str | None, Field(None, description="Query by timestamp (YYYY-MM-DD or Unix MS)")] = None,
-    limit: Annotated[int, Field(100, description="Max results (1-50000)")] = 100
+    timestamp: Annotated[str | None, Field(None, description="YYYY-MM-DD")] = None,
+    limit: Annotated[int, Field(100, description="Max results")] = 100
 ) -> str:
-    """[Forex] Retrieve historical Bid/Ask (BBO) quotes for a currency pair."""
-    
+    """[Forex] Retrieve historical Bid/Ask (BBO) quotes."""
     try:
+        if not timestamp or str(timestamp).lower() == "none":
+            timestamp = datetime.now().strftime("%Y-%m-%d")
+            
         validated = HistoricalQuotesInput(ticker=ticker, timestamp=timestamp, limit=limit)
-    except ValidationError as e:
-        return f"Input Validation Error: {str(e)}"
 
-    params = {"limit": validated.limit}
-    if validated.timestamp:
-        params["timestamp"] = validated.timestamp
+        params = {
+            "limit": validated.limit,
+            "timestamp": validated.timestamp
+        }
 
-    try:
-        # Calls GET /v3/quotes/{fxTicker}
-        res = forex_service.get_historical_quotes(validated.ticker, params)
-        results = res.get("results", [])
+        # Call Service
+        results = await forex_service.get_historical_quotes(validated.ticker, params)
 
         if not results:
-            return "No historical quotes found for this criteria."
+            return f"No historical quotes found for {validated.ticker} on {validated.timestamp}."
 
-        lines = [f"Historical Quotes (BBO) for {validated.ticker}:", "-" * 50]
-        # Massive API Quotes  return: { "t": timestamp, "y": timestamp_ns, "a": ask_price, "b": bid_price, "as": ask_size, "bs": bid_size }
-        for q in results[:20]: # Limit display to avoid context overflow
-            ts = q.get('t', 'N/A') 
-            ask = q.get('a', 'N/A')
-            bid = q.get('b', 'N/A')
+        lines = [f"Historical Quotes (BBO) for {validated.ticker} on {validated.timestamp}:", "-" * 50]
+        
+        for q in results[:20]:
+            # Use Hybrid Accessor
+            # Keys match the JSON output you showed from Playground
+            ts = _get_val(q, 'participant_timestamp') or _get_val(q, 'timestamp', 'N/A')
+            bid = _get_val(q, 'bid_price') or _get_val(q, 'bid', 'N/A')
+            ask = _get_val(q, 'ask_price') or _get_val(q, 'ask', 'N/A')
+            
             lines.append(f"Time: {ts} | Bid: {bid} | Ask: {ask}")
         
         if len(results) > 20:
             lines.append(f"... (+{len(results)-20} more records)")
 
         return "\n".join(lines)
-
+        
     except Exception as e:
+        if "timed out" in str(e).lower():
+            return "Error: Request timed out. Try specifying a narrower date range."
         return handle_api_error(e, settings.MASSIVE_API_KEY)
 
 @monitor_tool
-def get_forex_indicator(
+async def get_forex_indicator(
     indicator: Annotated[str, Field(description="Type: sma, ema, macd, rsi, bollinger")],
-    ticker: Annotated[str, Field(description="Forex Pair (e.g. EURUSD)")],
-    timespan: Annotated[str, Field("day", description="minute, hour, day")] = "day",
-    window: Annotated[int, Field(14, description="Window size")] = 14
+    ticker: Annotated[str, Field(description="Forex Pair")],
+    timespan: Annotated[str, Field("day")] = "day",
+    window: Annotated[int, Field(14)] = 14
 ) -> str:
     """[Forex] Calculate technical indicators (SMA, EMA, RSI, MACD, Bollinger)."""
-    
     try:
         validated = IndicatorInput(ticker=ticker, timespan=timespan, window=window)
-    except ValidationError as e:
-        return f"Input Validation Error: {str(e)}"
+        params = {"timespan": validated.timespan, "window": validated.window, "series_type": validated.series_type, "limit": validated.limit}
 
-    params = {
-        "timespan": validated.timespan,
-        "window": validated.window,
-        "series_type": validated.series_type,
-        "limit": validated.limit
-    }
+        if indicator.lower() == "sma": res = await forex_service.get_sma(validated.ticker, params)
+        elif indicator.lower() == "ema": res = await forex_service.get_ema(validated.ticker, params)
+        elif indicator.lower() == "macd": res = await forex_service.get_macd(validated.ticker, params)
+        elif indicator.lower() == "rsi": res = await forex_service.get_rsi(validated.ticker, params)
+        elif indicator.lower() == "bollinger": res = await forex_service.get_bollinger(validated.ticker, params)
+        else: return "Error: Unsupported indicator type."
 
-    try:
-        if indicator.lower() == "sma":
-            res = forex_service.get_sma(validated.ticker, params)
-        elif indicator.lower() == "ema":
-            res = forex_service.get_ema(validated.ticker, params)
-        elif indicator.lower() == "macd":
-            res = forex_service.get_macd(validated.ticker, params)
-        elif indicator.lower() == "rsi":
-            res = forex_service.get_rsi(validated.ticker, params)
-        elif indicator.lower() == "bollinger":
-            res = forex_service.get_bollinger(validated.ticker, params)
-        else:
-            return "Error: Unsupported indicator type."
-
-        results = res.get("results", {}).get("values", [])
-        
+        values = getattr(res, 'values', [])
         lines = [f"{indicator.upper()} Indicator for {validated.ticker}:", "-" * 50]
-        for val in results[:10]:
-            lines.append(f"Date: {val.get('timestamp')} | Value: {val.get('value')}")
+        
+        for val in values[:10]:
+            ts = getattr(val, 'timestamp', 'N/A')
+            v = getattr(val, 'value', 'N/A')
+            lines.append(f"Date: {ts} | Value: {v}")
             
         return "\n".join(lines)
 
@@ -272,109 +323,107 @@ def get_forex_indicator(
         return handle_api_error(e, settings.MASSIVE_API_KEY)
     
 @monitor_tool
-def get_forex_exchanges(
-    asset_class: Annotated[str, Field("fx", description="Asset class (default: fx)")] = "fx",
-    locale: Annotated[str, Field("global", description="Locale (default: global)")] = "global"
+async def get_forex_exchanges(
+    asset_class: Annotated[str, Field("fx")] = "fx",
+    locale: Annotated[str, Field("global")] = "global"
 ) -> str:
     """[Forex] Retrieve a list of known forex exchanges."""
-    
     try:
         validated = ExchangesInput(asset_class=asset_class, locale=locale)
-    except ValidationError as e:
-        return f"Input Validation Error: {str(e)}"
+        results = await forex_service.get_exchanges({"asset_class": validated.asset_class, "locale": validated.locale})
 
-    params = {
-        "asset_class": validated.asset_class,
-        "locale": validated.locale
-    }
-
-    try:
-        res = forex_service.get_exchanges(params)
-        results = res.get("results", [])
-
-        if not results:
-            return "No exchanges found."
+        if not results: return "No exchanges found."
 
         lines = ["Forex Exchanges:", "-" * 50]
         for ex in results:
-            lines.append(f"ID: {ex.get('id')} | Name: {ex.get('name')} | Type: {ex.get('type')} | Locale: {ex.get('locale')}")
-            if ex.get('url'):
-                lines.append(f"  URL: {ex.get('url')}")
-        
+            name = getattr(ex, 'name', 'N/A')
+            type_ = getattr(ex, 'type', 'N/A')
+            id_ = getattr(ex, 'id', 'N/A')
+            lines.append(f"ID: {id_} | Name: {name} | Type: {type_}")
         return "\n".join(lines)
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
     
 @monitor_tool
-def get_forex_market_snapshot(
-    tickers: Annotated[str | None, Field(None, description="Comma-separated list of tickers to filter")] = None,
-    limit: Annotated[int, Field(100, description="Number of results")] = 100
+async def get_forex_market_snapshot(
+    tickers: Annotated[str | None, Field(None)] = None,
+    limit: Annotated[int, Field(100)] = 100
 ) -> str:
-    """[Forex] Retrieve a comprehensive snapshot of the entire forex market (or filtered list)."""
-
+    """[Forex] Retrieve a comprehensive snapshot of the entire forex market."""
     try:
         validated = MarketSnapshotInput(tickers=tickers, limit=limit)
-    except ValidationError as e:
-        return f"Input Validation Error: {str(e)}"
+        params = {"tickers": validated.tickers}
+        results = await forex_service.get_snapshot_all(params)
 
-    params = {"limit": validated.limit}
-    if validated.tickers:
-        params["tickers"] = validated.tickers
+        if not results: return "No snapshot data available."
 
-    try:
-        # Calls GET /v2/snapshot/locale/global/markets/forex/tickers
-        res = forex_service.get_snapshot_all(params)
+        lines = [f"Market Snapshot:", "-" * 50]
         
-        # Depending on API, response might be a list under 'tickers' key or direct list
-        data = res.get("tickers", []) if isinstance(res, dict) else res
-
-        if not data:
-            return "No snapshot data available."
-
-        lines = [f"Market Snapshot ({len(data)} tickers):", "-" * 50]
-        sorted_data = sorted(data, key=lambda x: abs(x.get('todaysChangePerc', 0)), reverse=True)
-
-        for t in sorted_data[:validated.limit]:
-            ticker = t.get('ticker')
-            price = t.get('lastTrade', {}).get('p', t.get('min', {}).get('c', 0)) # Fallback if structure varies
-            change = t.get('todaysChangePerc', 0)
-            vol = t.get('day', {}).get('v', 0)
+        for t in results[:validated.limit]:
+            tick = getattr(t, 'ticker', 'N/A')
+            price = getattr(getattr(t, 'last_trade', None), 'p', 'N/A')
+            change = getattr(t, 'todays_change_percent', getattr(t, 'todays_change_perc', 0))
             
-            lines.append(f"{ticker}: {price} ({change:+.2f}%) | Vol: {vol:,.0f}")
+            lines.append(f"{tick}: {price} ({change:.2f}%)")
         
         return "\n".join(lines)
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
     
 @monitor_tool
-def get_forex_prev_close(
+async def get_forex_prev_close(
     ticker: Annotated[str, Field(description="Forex Pair (e.g. EURUSD)")]
 ) -> str:
     """[Forex] Retrieve the previous trading day's OHLC data for a currency pair."""
-    
     try:
         validated = ForexTickerInput(ticker=ticker)
-    except ValidationError as e:
-        return f"Input Validation Error: {str(e)}"
+        res = await forex_service.get_prev_day(validated.ticker)
+        if isinstance(res, list):
+            if not res: return "No previous day data found."
+            bar = res[0]
+        else:
+            bar = res
 
-    try:
-        # Calls GET /v2/aggs/ticker/{fxTicker}/prev
-        res = forex_service.get_prev_day(validated.ticker)
-
-        results = res.get("results", [])
-        if not results:
-            return "No previous day data found."
-
-        bar = results[0]
-        lines = [f"Previous Day Close for {validated.ticker}:", "-" * 50]
-        lines.append(f"Date: {res.get('status') if 'status' not in ['OK'] else 'Recent'}") # API varies on date field location
-        lines.append(f"Open: {bar.get('o')}")
-        lines.append(f"High: {bar.get('h')}")
-        lines.append(f"Low: {bar.get('l')}")
-        lines.append(f"Close: {bar.get('c')}")
-        lines.append(f"Volume: {bar.get('v')}")
-        lines.append(f"VWAP: {bar.get('vw')}")
+        o = getattr(bar, 'open', 'N/A')
+        h = getattr(bar, 'high', 'N/A')
+        l = getattr(bar, 'low', 'N/A')
+        c = getattr(bar, 'close', 'N/A')
+        v = getattr(bar, 'volume', 'N/A')
         
+        lines = [f"Previous Day Close for {validated.ticker}:", "-" * 50]
+        lines.append(f"Open: {o} | High: {h} | Low: {l} | Close: {c}")
+        lines.append(f"Volume: {v}")
+        return "\n".join(lines)
+    except Exception as e:
+        return handle_api_error(e, settings.MASSIVE_API_KEY)
+
+@monitor_tool
+async def get_forex_market_holidays() -> str:
+    """
+    [Forex] Retrieve upcoming market holidays and trading hour adjustments.
+    Use this to plan for market closures or early closes.
+    """
+    try:
+        holidays = await forex_service.get_market_holidays()
+
+        if not holidays:
+            return "No upcoming market holidays found."
+
+        lines = ["Upcoming Market Holidays & Adjustments:", "-" * 50]
+        
+        for h in holidays:
+            name = getattr(h, 'name', 'Holiday')
+            h_date = getattr(h, 'date', 'N/A')
+            status = getattr(h, 'status', 'N/A')
+            exch = getattr(h, 'exchange', 'N/A')
+            
+            msg = f"{h_date}: {name} ({exch}) - Status: {status.upper()}"
+            
+            if hasattr(h, 'open') and h.open:
+                msg += f" | Hours: {h.open} to {getattr(h, 'close', '?')}"
+                
+            lines.append(msg)
+
         return "\n".join(lines)
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)

@@ -22,7 +22,9 @@ class Settings(BaseSettings):
     COINMARKETCAP_BASE_URL: str = "https://pro-api.coinmarketcap.com"
     MASSIVE_BASE_URL: str = "https://api.massive.com"
     MASSIVE_API_KEY: str
-
+    # Forex Config
+    FOREX_MAX_CONCURRENCY: int = 10  # Max simultaneous threads
+    FOREX_TIMEOUT_SECONDS: int = 30  # Max time per request
     # Pydantic V2 Configuration
     model_config = SettingsConfigDict(
         env_file=str(ENV_PATH),    # Uses the absolute path we calculated

@@ -1,7 +1,6 @@
 from pydantic import BaseModel, Field, field_validator
 import re
 from typing import Optional
-
 class ForexTickerInput(BaseModel):
     ticker: str = Field(..., description="Forex Pair Ticker (e.g. C:EURUSD, EURUSD)")
 
@@ -15,7 +14,10 @@ class ForexTickerInput(BaseModel):
 class TickersListInput(BaseModel):
     limit: int = Field(100, ge=1, le=1000, description="Number of tickers to retrieve (1-1000)")
     market: str = Field("fx", description="Market type (default: fx)")
-    
+
+class ExchangesInput(BaseModel):
+    asset_class: str = Field("fx", description="Asset class (default: fx)")
+    locale: str = Field("global", description="Locale (default: global)")
 
 class ConversionInput(BaseModel):
     from_currency: str = Field(..., description="Source Currency (e.g. USD)")
@@ -30,9 +32,14 @@ class ConversionInput(BaseModel):
         return v
 
 class HistoricalQuotesInput(ForexTickerInput):
-    timestamp: Optional[str] = Field(None, description="Query by timestamp (YYYY-MM-DD or Unix MS)")
-    limit: int = Field(100, ge=1, le=50000, description="Max results")
-
+    timestamp: Optional[str] = Field(None, description="Query by exact date (YYYY-MM-DD) or Unix MS.")
+    timestamp_lt: Optional[str] = Field(None, description="Timestamp Less Than")
+    timestamp_lte: Optional[str] = Field(None, description="Timestamp Less Than or Equal")
+    timestamp_gt: Optional[str] = Field(None, description="Timestamp Greater Than")
+    timestamp_gte: Optional[str] = Field(None, description="Timestamp Greater Than or Equal")
+    sort: Optional[str] = Field("timestamp", description="Field to sort by (timestamp)")
+    order: Optional[str] = Field("asc", description="Sort order (asc, desc)")
+    limit: int = Field(100, ge=1, le=50000, description="Max number of results to return.")
 class MarketMoversInput(BaseModel):
     direction: str = Field(..., description="Direction: 'gainers' or 'losers'")
 
@@ -44,7 +51,7 @@ class MarketMoversInput(BaseModel):
         return v
 
 class CustomBarsInput(ForexTickerInput):
-    multiplier: int = Field(1, ge=1, description="Time interval multiplier (e.g. 1 for 1-minute)")
+    multiplier: int = Field(1, ge=1, description="Time interval multiplier")
     timespan: str = Field(..., description="Timespan: minute, hour, day, week, month, quarter, year")
     from_date: str = Field(..., description="Start date (YYYY-MM-DD)")
     to_date: str = Field(..., description="End date (YYYY-MM-DD)")
@@ -61,11 +68,6 @@ class IndicatorInput(ForexTickerInput):
     window: int = Field(14, ge=1, description="Window size for calculation")
     series_type: str = Field("close", description="Price type: open, high, low, close")
     limit: int = Field(10, ge=1, description="Number of data points to return")
-    
-    
-class ExchangesInput(BaseModel):
-    asset_class: str = Field("fx", description="Asset class (default: fx)")
-    locale: str = Field("global", description="Locale (default: global)")
 
 class MarketSnapshotInput(BaseModel):
     tickers: Optional[str] = Field(None, description="Comma-separated list of tickers to filter")
@@ -76,4 +78,3 @@ class MarketSnapshotInput(BaseModel):
         if v:
             return ",".join([t.strip().upper() for t in v.split(",") if t.strip()])
         return v
-    

@@ -21,7 +21,8 @@ from src.tools.forex.tool import (
     get_forex_historical_quotes,
     get_forex_indicator,
     get_forex_market_snapshot,
-    get_forex_snapshot
+    get_forex_snapshot,
+    get_forex_market_holidays
 )
 
 def register_tools(mcp: FastMCP):
@@ -64,7 +65,8 @@ def register_tools(mcp: FastMCP):
         get_forex_historical_quotes,
         get_forex_indicator,
         get_forex_market_snapshot,
-        get_forex_snapshot
+        get_forex_snapshot,
+        get_forex_market_holidays
     ]
     # 
     all_tools =  crypto_tools + forex_tools

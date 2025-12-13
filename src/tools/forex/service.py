@@ -1,138 +1,217 @@
-import requests
-from typing import Dict, Any, Optional
+import asyncio
+import json
+from typing import Dict, Any, List, Callable, TypeVar
+
+from massive import RESTClient
+from urllib3.exceptions import HTTPError as UrllibHTTPError, MaxRetryError
+
 from src.common.settings import get_settings
 from src.common.logger import setup_logger
-from src.common.exceptions import sanitize_message
+from src.common.custom_exceptions import (
+    ProviderConnectionError, 
+    ProviderTimeoutError, 
+    DataNotFound, 
+    RateLimitExceeded, 
+    InvalidInputError
+)
 
 logger = setup_logger(__name__)
+settings = get_settings()
+
+T = TypeVar("T")
 
 class MassiveForexService:
     def __init__(self):
-        self.settings = get_settings()
-        self.api_key = getattr(self.settings, "MASSIVE_API_KEY", "") 
-        self.base_url = getattr(self.settings, "MASSIVE_BASE_URL")
-        self.headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Accept": "application/json"
-        }
+        # Concurrency Cap
+        self._semaphore = asyncio.Semaphore(getattr(settings, "FOREX_MAX_CONCURRENCY", 10))
+        
+        #Initialize Client 
+        self.client = RESTClient(api_key=settings.MASSIVE_API_KEY)
+        
+        # Manual Base URL Configuration 
+        if hasattr(settings, "MASSIVE_BASE_URL") and settings.MASSIVE_BASE_URL:
+            self.client.base_url = settings.MASSIVE_BASE_URL
+            
+    async def _execute_bounded(self, func: Callable[..., T], *args, **kwargs) -> T:
+        """
+        Executes a blocking SDK call in a thread with a strict timeout.
+        """
+        async with self._semaphore:
+            try:
+                return await asyncio.wait_for(
+                    asyncio.to_thread(func, *args, **kwargs),
+                    timeout=getattr(settings, "FOREX_TIMEOUT_SECONDS", 30)
+                )
+                
+            except (asyncio.TimeoutError, TimeoutError):
+                logger.error("Massive API Request Timed Out")
+                raise ProviderTimeoutError("External data provider timed out.")
+                
+            except (MaxRetryError, UrllibHTTPError) as e:
+                logger.error(f"Massive API Network Error: {e}", exc_info=True)
+                raise ProviderConnectionError("Failed to connect to Forex Data Provider.")
+                
+            except Exception as e:
+                error_str = str(e)
+                if "401" in error_str:
+                    logger.critical("Massive API Key invalid!")
+                    raise ProviderConnectionError("Internal Configuration Error (API Key).")
+                if "429" in error_str:
+                    raise RateLimitExceeded("Forex data rate limit reached.")
+                if "404" in error_str:
+                    raise DataNotFound(f"Resource not found.")
+                
+                logger.error(f"Unexpected API Error: {e}", exc_info=True)
+                raise RuntimeError(f"Provider Error: {error_str}")
 
     def _ensure_prefix(self, ticker: str) -> str:
-        """Helper to ensure Forex tickers have the 'C:' prefix required by some endpoints."""
-        if ":" not in ticker and len(ticker) == 6:
-            return f"C:{ticker}"
-        return ticker
-
-    def _request(self, endpoint: str, params: Dict[str, Any] = None) -> Dict:
-        if params is None:
-            params = {}
-        
-        # Fallback for APIs that need key in query
-        if "apiKey" not in params and not self.headers.get("Authorization"):
-             params["apiKey"] = self.api_key
-
-        url = f"{self.base_url}{endpoint}"
-        
-        safe_params = {k: sanitize_message(str(v), self.api_key) for k, v in params.items()}
-        logger.info(f"API request to {endpoint} with params: {safe_params}")
-
-        try:
-            response = requests.get(url, headers=self.headers, params=params, timeout=30)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.ConnectionError:
-            logger.error(f"Connection failed to {url}")
-            # Raise a clean error that Tool layer can catch
-            raise Exception("Network Error: Could not connect to the API endpoint.")
-        except requests.exceptions.Timeout:
-            logger.error(f"Timeout connecting to {url}")
-            raise Exception("Network Error: Request timed out.")
-        except requests.exceptions.HTTPError as e:
-            if e.response is not None:
-                logger.error(f"API Error {e.response.status_code}: {e.response.text}")
-                # Try to parse API error message
-                try:
-                    err_json = e.response.json()
-                    msg = err_json.get('error', err_json.get('message', e.response.text))
-                    raise Exception(f"API Error ({e.response.status_code}): {msg}")
-                except:
-                    pass
-            raise e
-
-    def get_tickers(self, params: Dict[str, Any]) -> Dict:
-        return self._request("/v3/reference/tickers", params)
-
-    def get_exchanges(self, params: Dict[str, Any]) -> Dict:
-        return self._request("/v3/reference/exchanges", params)
-
-    def get_market_status(self) -> Dict:
-        return self._request("/v1/marketstatus/now")
-
-    def get_conversion(self, from_ccy: str, to_ccy: str, params: Dict[str, Any]) -> Dict:
-        return self._request(f"/v1/conversion/{from_ccy}/{to_ccy}", params)
-
-    def get_last_quote(self, ticker: str) -> Dict:
-        # Clean the ticker
-        clean_ticker = ticker.replace("C:", "").replace("X:", "").strip().upper()
-        
-        # 2. Validate format (Must be 6 characters, e.g., AUDUSD)
-        if len(clean_ticker) != 6:
-            raise ValueError(f"Invalid format for Last Quote: '{ticker}'. This endpoint requires a standard 6-character pair (e.g. EURUSD).")
-
-        # 3. Split into Base/Quote
-        base_ccy = clean_ticker[:3]
-        quote_ccy = clean_ticker[3:]
-
-        return self._request(f"/v1/last_quote/currencies/{base_ccy}/{quote_ccy}")
-
-    def get_historical_quotes(self, ticker: str, params: Dict[str, Any]) -> Dict:
-        ticker = self._ensure_prefix(ticker)
-        return self._request(f"/v3/quotes/{ticker}", params)
-
-    def get_snapshot_ticker(self, ticker: str) -> Dict:
-        ticker = self._ensure_prefix(ticker)
-        return self._request(f"/v2/snapshot/locale/global/markets/forex/tickers/{ticker}")
-
-    def get_snapshot_all(self, params: Dict[str, Any]) -> Dict:
-        return self._request("/v2/snapshot/locale/global/markets/forex/tickers", params)
-
-    def get_market_movers(self, direction: str) -> Dict:
-        return self._request(f"/v2/snapshot/locale/global/markets/forex/{direction}")
-
-    def get_prev_day(self, ticker: str) -> Dict:
-        ticker = self._ensure_prefix(ticker)
-        return self._request(f"/v2/aggs/ticker/{ticker}/prev")
-
-    def get_custom_bars(self, ticker: str, multiplier: int, timespan: str, from_date: str, to_date: str, params: Dict[str, Any]) -> Dict:
-        ticker = self._ensure_prefix(ticker)
-        if "adjusted" not in params:
-            params["adjusted"] = "true"
-        if "sort" not in params:
-            params["sort"] = "asc"
+        """Helper: Ensure 'C:' prefix."""
+        ticker = ticker.strip().upper().replace("X:", "").replace("C:", "")
+        return f"C:{ticker}"
+    def _split_pair(self, ticker: str):
+            """
+            Helper: Splits ticker into (Base, Quote).
+            Handles standard 'EURUSD' and hyphenated 'EUR-USD'.
+            """
+            # Remove common prefixes
+            clean = ticker.replace("C:", "").replace("X:", "").strip().upper()
             
-        endpoint = f"/v2/aggs/ticker/{ticker}/range/{multiplier}/{timespan}/{from_date}/{to_date}"
-        return self._request(endpoint, params)
+            # Handle Hyphenated (e.g. "EUR-USD") - Seen in Massive Docs
+            if "-" in clean:
+                parts = clean.split("-")
+                if len(parts) == 2:
+                    return parts[0], parts[1]
+
+            # Handle Standard (e.g. "EURUSD")
+            if len(clean) == 6:
+                return clean[:3], clean[3:]
+
+            # Fail explicitly if format is unknown
+            raise InvalidInputError(f"Invalid ticker format: '{ticker}'. Expected 6 chars (EURUSD) or hyphenated (EUR-USD).")
 
 
-    def _get_indicator(self, name: str, ticker: str, params: Dict[str, Any]) -> Dict:
-        ticker = self._ensure_prefix(ticker)
-        if "adjusted" not in params:
-             params["adjusted"] = "true"
-        if "order" not in params: 
-             params["order"] = "desc" 
+    async def get_tickers(self, params: Dict[str, Any]) -> List[Any]:
+        limit = params.get("limit", 100)
+        return await self._execute_bounded(
+            lambda: list(self.client.list_tickers(market="fx", limit=limit))
+        )
+
+    async def get_exchanges(self, params: Dict[str, Any]) -> List[Any]:
+        return await self._execute_bounded(
+            lambda: list(self.client.get_exchanges(asset_class="fx", locale="global"))
+        )
+
+    async def get_market_status(self) -> Any:
+        return await self._execute_bounded(self.client.get_market_status)
+
+    async def get_conversion(self, from_ccy: str, to_ccy: str, params: Dict[str, Any]) -> Any:
+        amount = params.get("amount", 1.0)
+        return await self._execute_bounded(
+            self.client.get_real_time_currency_conversion,
+            from_ccy, to_ccy, amount=amount, precision=2
+        )
+
+    async def get_last_quote(self, ticker: str) -> Any:
+        # Split the single ticker string into (from, to)
+        base, quote = self._split_pair(ticker)
+        return await self._execute_bounded(
+            self.client.get_last_forex_quote, 
+            base, 
+            quote
+        )
+
+    async def get_historical_quotes(self, ticker: str, params: Dict[str, Any]) -> List[Any]:
+        """
+        Retrieves quotes using Raw Mode to prevent SDK iterator timeouts.
+        Returns a list of Dictionaries (not SDK Objects).
+        """
+        # Inject defaults
+        params.setdefault("order", "asc")
+        params.setdefault("sort", "timestamp")
         
-        return self._request(f"/v1/indicators/{name}/{ticker}", params)
+        
+        params["limit"] = min(params.get("limit", 100), 1000)
 
-    def get_sma(self, ticker: str, params: Dict[str, Any]) -> Dict:
-        return self._get_indicator("sma", ticker, params)
+        def safe_fetch():
+            response = self.client.list_quotes(self._ensure_prefix(ticker), raw=True, **params)
+            if hasattr(response, 'data'):
+                json_data = json.loads(response.data.decode("utf-8"))
+            else:
+                json_data = json.loads(response)
 
-    def get_ema(self, ticker: str, params: Dict[str, Any]) -> Dict:
-        return self._get_indicator("ema", ticker, params)
+            return json_data.get("results", [])
 
-    def get_macd(self, ticker: str, params: Dict[str, Any]) -> Dict:
-        return self._get_indicator("macd", ticker, params)
+        return await self._execute_bounded(safe_fetch)
 
-    def get_rsi(self, ticker: str, params: Dict[str, Any]) -> Dict:
-        return self._get_indicator("rsi", ticker, params)
+    async def get_snapshot_ticker(self, ticker: str) -> Any:
+        return await self._execute_bounded(
+            self.client.get_snapshot_ticker, 
+            market_type="forex",
+            ticker=self._ensure_prefix(ticker)
+        )
 
-    def get_bollinger(self, ticker: str, params: Dict[str, Any]) -> Dict:
-        return self._get_indicator("bollinger", ticker, params)
+    async def get_snapshot_all(self, params: Dict[str, Any]) -> List[Any]:
+        tickers = params.get("tickers")
+        return await self._execute_bounded(
+            lambda: list(self.client.get_snapshot_all(market_type="forex", tickers=tickers))
+        )
+
+    async def get_market_movers(self, direction: str) -> List[Any]:
+        return await self._execute_bounded(
+            lambda: list(self.client.get_snapshot_direction(market_type="forex", direction=direction))
+        )
+
+    async def get_prev_day(self, ticker: str) -> Any:
+        return await self._execute_bounded(
+            self.client.get_previous_close_agg, 
+            self._ensure_prefix(ticker)
+        )
+
+    async def get_custom_bars(self, ticker: str, multiplier: int, timespan: str, from_date: str, to_date: str, params: Dict[str, Any]) -> List[Any]:
+        sort = params.get("sort", "asc")
+        return await self._execute_bounded(
+            lambda: list(self.client.list_aggs(
+                ticker=self._ensure_prefix(ticker),
+                multiplier=multiplier,
+                timespan=timespan,
+                from_=from_date,
+                to=to_date,
+                limit=50000,
+                adjusted=True,
+                sort=sort
+            ))
+        )
+
+    # --- Technical Indicators ---
+    
+    def _inject_defaults(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        defaults = {"adjusted": True, "order": "desc", "limit": 10}
+        return {**defaults, **params}
+
+    async def get_sma(self, ticker: str, params: Dict[str, Any]) -> Any:
+        return await self._execute_bounded(
+            self.client.get_sma, self._ensure_prefix(ticker), **self._inject_defaults(params)
+        )
+
+    async def get_ema(self, ticker: str, params: Dict[str, Any]) -> Any:
+        return await self._execute_bounded(
+            self.client.get_ema, self._ensure_prefix(ticker), **self._inject_defaults(params)
+        )
+
+    async def get_macd(self, ticker: str, params: Dict[str, Any]) -> Any:
+        return await self._execute_bounded(
+            self.client.get_macd, self._ensure_prefix(ticker), **self._inject_defaults(params)
+        )
+
+    async def get_rsi(self, ticker: str, params: Dict[str, Any]) -> Any:
+        return await self._execute_bounded(
+            self.client.get_rsi, self._ensure_prefix(ticker), **self._inject_defaults(params)
+        )
+
+    async def get_bollinger(self, ticker: str, params: Dict[str, Any]) -> Any:
+        return await self._execute_bounded(
+            self.client.get_bollinger_bands, self._ensure_prefix(ticker), **self._inject_defaults(params)
+        )
+
+    async def get_market_holidays(self) -> List[Any]:
+        return await self._execute_bounded(self.client.get_market_holidays)
