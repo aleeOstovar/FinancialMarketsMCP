@@ -70,14 +70,23 @@ def get_forex_last_quote(
 
     try:
         res = forex_service.get_last_quote(validated.ticker)
-        # Assuming 'results' or direct object
-        data = res.get("results", res)
-        
+        last_data = res.get("last", {})
+
+        if not last_data:
+            return (f"Note: Real-time Bid/Ask quotes for {validated.ticker} are unavailable or returned no data. "
+                    "Please use 'get_forex_prev_close' for the latest available price.")
+
+        bid = last_data.get("bid", "N/A")
+        ask = last_data.get("ask", "N/A")
+        timestamp = last_data.get("timestamp", "N/A")
+
         lines = [f"Last Quote for {validated.ticker}:", "-" * 50]
-        lines.append(f"Bid: {data.get('bid', 'N/A')}") 
-        lines.append(f"Ask: {data.get('ask', 'N/A')}")
-        lines.append(f"Timestamp: {data.get('timestamp', 'N/A')}")
+        lines.append(f"Bid: {bid}")
+        lines.append(f"Ask: {ask}")
+        lines.append(f"Timestamp: {timestamp}")
+        
         return "\n".join(lines)
+
     except Exception as e:
         return handle_api_error(e, settings.MASSIVE_API_KEY)
 

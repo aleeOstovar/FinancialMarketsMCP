@@ -71,14 +71,18 @@ class MassiveForexService:
         return self._request(f"/v1/conversion/{from_ccy}/{to_ccy}", params)
 
     def get_last_quote(self, ticker: str) -> Dict:
-        # Ticker often needs "C:" prefix for this endpoint
-        ticker = self._ensure_prefix(ticker)
-        # Try v1 first (Standard for Forex Last Quote on many providers)
-        # If user explicitly listed v2, we keep v2, but v1 is safer for 'last_quote' on currencies
-        return self._request(f"/v1/last_quote/currencies/{ticker[2:5]}/{ticker[5:]}") 
-        # Note: The above path implies splitting C:EURUSD -> EUR / USD. 
-        # However, if the user insists on the provided endpoint list:
-        # return self._request(f"/v2/last/quote/{ticker}")
+        # Clean the ticker
+        clean_ticker = ticker.replace("C:", "").replace("X:", "").strip().upper()
+        
+        # 2. Validate format (Must be 6 characters, e.g., AUDUSD)
+        if len(clean_ticker) != 6:
+            raise ValueError(f"Invalid format for Last Quote: '{ticker}'. This endpoint requires a standard 6-character pair (e.g. EURUSD).")
+
+        # 3. Split into Base/Quote
+        base_ccy = clean_ticker[:3]
+        quote_ccy = clean_ticker[3:]
+
+        return self._request(f"/v1/last_quote/currencies/{base_ccy}/{quote_ccy}")
 
     def get_historical_quotes(self, ticker: str, params: Dict[str, Any]) -> Dict:
         ticker = self._ensure_prefix(ticker)
